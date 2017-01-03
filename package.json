@@ -1,0 +1,36 @@
+{
+  "name": "snapdragon-cheerio",
+  "description": "Snapdragon plugin for working with the cheerio AST.",
+  "version": "0.1.0",
+  "homepage": "https://github.com/jonschlinkert/snapdragon-cheerio",
+  "author": "Jon Schlinkert (https://github.com/jonschlinkert)",
+  "repository": "jonschlinkert/snapdragon-cheerio",
+  "bugs": {
+    "url": "https://github.com/jonschlinkert/snapdragon-cheerio/issues"
+  },
+  "license": "MIT",
+  "files": [
+    "index.js"
+  ],
+  "main": "index.js",
+  "engines": {
+    "node": ">=0.10.0"
+  },
+  "scripts": {
+    "test": "mocha"
+  },
+  "dependencies": {
+    "cheerio": "^0.22.0",
+    "clone-deep": "^0.2.4",
+    "define-property": "^0.2.5",
+    "detect-indent": "^5.0.0",
+    "extend-shallow": "^2.0.1",
+    "strip-attributes": "^0.1.0",
+    "unescape": "^0.2.0"
+  },
+  "keywords": [
+    "cheerio",
+    "generategenerator",
+    "snapdragon"
+  ]
+}
