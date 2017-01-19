@@ -1,6 +1,6 @@
 {
   "name": "snapdragon-cheerio",
-  "description": "Snapdragon plugin for working with the cheerio AST.",
+  "description": "Snapdragon plugin for converting a cheerio AST to a snapdragon AST.",
   "version": "0.1.0",
   "homepage": "https://github.com/jonschlinkert/snapdragon-cheerio",
   "author": "Jon Schlinkert (https://github.com/jonschlinkert)",
@@ -21,16 +21,44 @@
   },
   "dependencies": {
     "cheerio": "^0.22.0",
-    "clone-deep": "^0.2.4",
     "define-property": "^0.2.5",
     "detect-indent": "^5.0.0",
     "extend-shallow": "^2.0.1",
     "strip-attributes": "^0.1.0",
-    "unescape": "^0.2.0"
+    "unescape": "^0.2.0",
+    "void-elements": "^2.0.1"
+  },
+  "devDependencies": {
+    "gulp-format-md": "^0.1.11",
+    "mocha": "^3.2.0"
   },
   "keywords": [
     "cheerio",
     "generategenerator",
     "snapdragon"
-  ]
+  ],
+  "verb": {
+    "toc": false,
+    "layout": "default",
+    "tasks": [
+      "readme"
+    ],
+    "plugins": [
+      "gulp-format-md"
+    ],
+    "related": {
+      "list": [
+        "snapdragon",
+        "cheerio",
+        "sledgehammer"
+      ]
+    },
+    "reflinks": [
+      "verb",
+      "verb-generate-readme"
+    ],
+    "lint": {
+      "reflinks": true
+    }
+  }
 }

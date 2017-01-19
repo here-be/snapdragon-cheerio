@@ -1,31 +1,75 @@
 'use strict';
 
+var voidElements = require('void-elements');
 var detectIndent = require('detect-indent');
 var stripAttr = require('strip-attributes');
 var define = require('define-property');
 var extend = require('extend-shallow');
 var unescape = require('unescape');
-var cheerio = require('cheerio');
 
-module.exports = function(str, options) {
+/**
+ * Parse the given `str` and return an AST.
+ *
+ * ```js
+ * var snapdragon = new Snapdgragon([options]);
+ * var ast = snapdragon.parse('foo/bar');
+ * console.log(ast);
+ * ```
+ * @param {String} `str`
+ * @param {Object} `options` Set `options.sourcemap` to true to enable source maps.
+ * @return {Object} Returns an AST.
+ * @api public
+ */
+
+module.exports = function(options) {
+  return function(snapdragon) {
+    snapdragon.define('parse', function(str, options) {
+      var opts = extend({}, this.options, options);
+      return convert(str, opts);
+    });
+  };
+};
+
+function convert(str, options) {
   var opts = extend({normalizeWhitespace: false}, options);
-  var $ = cheerio.load(str, opts);
+  var cheerio = opts.cheerio || require('cheerio');
+  var $;
 
-  if (opts.stripTags) {
-    var tags = opts.stripTags;
-    tags = Array.isArray(tags) ? tags : [tags];
+  if (typeof str === 'function' && str._root) {
+    $ = str;
+  } else if (typeof str !== 'string') {
+    throw new TypeError('expected a string');
+  } else {
+    $ = cheerio.load(str, opts);
+  }
 
-    var len = tags.length;
-    while (len--) {
-      $(tags[len]).remove();
-    }
+  if (typeof opts.omitEmpty === 'string' || Array.isArray(opts.omitEmpty)) {
+    $(stringify(opts.omitEmpty)).each(function(i, node) {
+      var re = /^(?:t(?:[rhd]|able|body|foot)|code|pre|br|hr)$/;
+      if (re.test(node.name)) return;
+
+      var text = $(node).text();
+      if (!text.trim()) {
+        $(node).remove();
+      }
+    });
+  }
+
+  // `.stripTags` will be deprecated
+  var omit = opts.stripTags || opts.omit;
+  if (omit) {
+    $(stringify(omit)).remove();
   }
 
   var nodes = $._root.children;
-  if (typeof opts.pick === 'string') {
-    var res = $(opts.pick)[0];
-    if (res && res.children) {
-      nodes = res.children;
+  if (opts.pick) {
+    var arr = [];
+    $(stringify(opts.pick)).each(function(i, ele) {
+      arr.push(ele);
+    });
+
+    if (arr.length) {
+      nodes = arr;
     }
   }
 
@@ -39,15 +83,16 @@ module.exports = function(str, options) {
   nodes.unshift(bos);
   nodes.push(eos);
   var prev = ast;
+  var tokens = [];
 
   visit(ast, function(node, i) {
     if (typeof opts.preprocess === 'function') {
-      node = opts.preprocess(node, prev, $, ast) || node;
+      node = opts.preprocess(node, prev, $, ast, opts) || node;
     }
 
     if (node.type === 'tag') {
       if (node.name === 'title') {
-        node.val = $(node).text().trim();
+        node.val = node.data = $(node).text().trim();
       }
 
       if (node.name === 'code') {
@@ -64,7 +109,7 @@ module.exports = function(str, options) {
       }
 
       if (node.name === 'li') {
-        $('p', node).each(function(i, elem) {
+        $('p', node).each(function(i, ele) {
           var str = $(this).html().trim();
           if (i > 0) str = ' ' + str;
           var span = $('<span></span>').html(str);
@@ -72,12 +117,10 @@ module.exports = function(str, options) {
         });
       }
 
-      if ((node.name === 'ul' || node.name === 'li')) {
+      if ((node.name === 'ul' || node.name === 'ol' || node.name === 'li')) {
         node.text = $(node).text();
         if (!node.text.trim()) {
-          node.nodes = [];
-          node.type = 'text';
-          node.val = '';
+          toNoop(node, true);
         }
       }
 
@@ -109,113 +152,35 @@ module.exports = function(str, options) {
       }
     }
 
+    tokens.push(node);
     prev = node;
     return node;
   });
 
-  prev = ast;
   visit(ast, function(node, i) {
     if (opts.literalPre && node.type === 'pre') return node;
 
     node = normalize(node, prev);
-
-    if (node.type === 'link' && node.attribs && node.attribs.rel === 'canonical') {
-      ast.canonical = node.attribs.href;
-    }
-
     if (/:/.test(node.type)) {
       node.name = node.type;
       node.type = 'custom';
     }
 
+    if (node.type === 'link' && node.attribs && node.attribs.rel === 'canonical') {
+      ast.canonical = node.attribs.href;
+    }
+
     prev = node;
     return node;
   });
 
-  prev = ast;
   visit(ast, function(node) {
     promoteTypes(node, ['span']);
-    prev = node;
     return node;
   });
 
-  if (options && options.readable) {
-    prev = ast;
-    visit(ast, function(node, i) {
-      var undesiredElements = ['script', 'style', 'select', 'form', 'button', 'iframe', 'footer', 'nav', 'menu'];
-
-      var unwantedAttribs = [
-        'ad ',
-        'ad-',
-        'advert',
-        'advertisement',
-        'auth',
-        'oauth',
-        'button',
-        'clear',
-        'comment',
-        'comments',
-        'display:none',
-        'foot',
-        'footer',
-        'hidden',
-        'menu',
-        'nav',
-        'popup',
-        'scroll',
-        'share',
-        'sidebar',
-        'social',
-        'transparent',
-        'thread',
-        'tags',
-        'video-'
-      ];
-
-      if (isType(node, 'body') || isType(node.parent, 'body')) {
-        prev = node;
-        return node;
-      }
-
-      if (hasAttribs(node.parent, unwantedAttribs)) {
-        // toNoop(node.parent);
-        node.parent.nodes = [];
-        node.parent.type = 'text';
-        node.parent.val = '';
-
-      } else if (isType(node.parent, undesiredElements)) {
-        // toNoop(node.parent);
-        node.parent.nodes = [];
-        node.type = 'text';
-        node.val = '';
-
-      } else if (isType(node, undesiredElements)) {
-        // toNoop(node);
-        delete node.nodes;
-        node.type = 'text';
-        node.val = '';
-
-      } else if (hasAttribs(node, unwantedAttribs)) {
-        // toNoop(node);
-        delete node.nodes;
-        node.type = 'text';
-        node.val = '';
-
-      } else if (isType(node, 'div') && node.nodes.length === 2) {
-        // toNoop(node);
-        delete node.nodes;
-        node.type = 'text';
-        node.val = '';
-
-      }
-
-      prev = node;
-      return node;
-    });
-  }
-
-  prev = ast;
   if (typeof opts.process === 'function') {
+    prev = ast;
     visit(ast, function(node, i) {
       opts.process(node, prev, $, ast);
       prev = node;
@@ -224,9 +189,9 @@ module.exports = function(str, options) {
   }
 
   return ast;
-};
+}
 
-function normalize(node, prev) {
+function normalize(node, prev, options) {
   if (node.type === 'directive') {
     node.name = node.name.replace(/^!/, '');
     node.type = 'tag';
@@ -237,13 +202,13 @@ function normalize(node, prev) {
   define(node, 'data', node.data);
 
   // rename to names supported by snapdragon
-  rename(node, 'children', 'nodes');
-  rename(node, 'data', 'val');
+  renameProperty(node, 'children', 'nodes');
+  renameProperty(node, 'data', 'val');
 
   // make cyclically redundant properties non-enumerable
-  define(node, 'parent', node.parent || prev);
+  define(node, 'parent', node.parent);
   define(node, 'root', node.root);
-  define(node, 'prev', node.prev || prev);
+  define(node, 'prev', node.prev);
   define(node, 'next', node.next);
 
   if (node.type === 'tag') {
@@ -251,36 +216,14 @@ function normalize(node, prev) {
     delete node.name;
     wrapNodes(node);
   }
+
   return node;
 }
 
-function toNoop(node, type) {
-  define(node, 'children', node.children);
-  define(node, 'name', node.name);
-  define(node, 'data', node.data);
-  if (node.attribs) node.attribs = {};
-  if (node.nodes) node.nodes = [];
-  if (type) node.type = type;
-  node.val = '';
-}
-
-function decorate(node, old, prev) {
-  define(node, 'parent', old.parent || prev);
-  define(node, 'prev', old.prev);
-  define(node, 'next', old.next);
-  return node;
-}
-
-function isType(node, type) {
-  if (!Array.isArray(type)) {
-    return node.type === type;
+function renameProperty(node, key, prop) {
+  if (typeof node[key] !== 'undefined' && !node[prop]) {
+    node[prop] = node[key];
   }
-  for (var i = 0; i < type.length; i++) {
-    if (isType(node, type[i])) {
-      return true;
-    }
-  }
-  return false;
 }
 
 function hasType(node, type) {
@@ -293,53 +236,8 @@ function hasType(node, type) {
   return false;
 }
 
-function hasAttribs(node, val, prop) {
-  if (Array.isArray(val)) {
-    for (var i = 0; i < val.length; i++) {
-      if (hasAttribs(node, val[i], prop)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  if (!node.attribs && !node.nodes) return false;
-  if (prop) {
-    var str = node.attribs[prop].toLowerCase();
-    if (val instanceof RegExp && val.test(str)) {
-      return true;
-    }
-    if (str === val) {
-      return true;
-    }
-    return false;
-  }
-
-  if (node.attribs) {
-    for (var key in node.attribs) {
-      if (node.attribs.hasOwnProperty(key)) {
-        var str = node.attribs[key].toLowerCase();
-        if (val instanceof RegExp && val.test(str)) {
-          return true;
-        }
-        if (str === val) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
-function rename(node, key, prop) {
-  if (typeof node[key] !== 'undefined') {
-    node[prop] = node[key];
-  }
-}
-
-function selfClosing(node) {
-  var tags = ['area', 'base', 'br', 'col', 'command', 'embed', 'hr', 'img', 'input', 'keygen', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
-  return tags.indexOf(node.type) !== -1;
+function isSelfClosing(node) {
+  return voidElements.hasOwnProperty(node.type);
 }
 
 /**
@@ -347,7 +245,7 @@ function selfClosing(node) {
  */
 
 function wrapNodes(node) {
-  if (!node.nodes || selfClosing(node)) return;
+  if (!node.nodes || isSelfClosing(node)) return;
   var open = { type: node.type + '.open', val: ''};
   var close = { type: node.type + '.close', val: ''};
 
@@ -370,19 +268,22 @@ function wrapNodes(node) {
 function visit(node, fn, idx) {
   node = fn(node, idx);
   var nodes = node.nodes || node.children;
-  return nodes ? mapVisit(nodes, fn) : node;
+  if (nodes) {
+    mapVisit(node, nodes, fn);
+  }
+  return node;
 }
 
 /**
  * Map visit over array of `nodes`.
  */
 
-function mapVisit(nodes, fn) {
-  if (!Array.isArray(nodes)) {
-    return nodes;
-  }
-  for (var i = 0; i < nodes.length; i++) {
-    visit(nodes[i], fn, i);
+function mapVisit(node, nodes, fn) {
+  if (Array.isArray(nodes)) {
+    for (var i = 0; i < nodes.length; i++) {
+      define(nodes[i], 'parent', node);
+      nodes[i] = visit(nodes[i], fn, i) || nodes[i];
+    }
   }
   return nodes;
 }
@@ -425,4 +326,27 @@ function promote(node, type) {
   }
 }
 
+function arrayify(val) {
+  return val ? (Array.isArray(val) ? val : [val]) : [];
+}
 
+function stringify(val) {
+  return arrayify(val).join(',');
+}
+
+function toNoop(node, nodes) {
+  if (nodes) {
+    node.nodes = [];
+  } else {
+    delete node.nodes;
+  }
+
+  node.type = 'text';
+  node.val = '';
+}
+
+/**
+ * Expose `.convert` method, so it can be used a non-plugin
+ */
+
+module.exports.convert = convert;
