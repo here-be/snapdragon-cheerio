@@ -22,15 +22,15 @@
   "dependencies": {
     "cheerio": "^0.22.0",
     "define-property": "^0.2.5",
-    "detect-indent": "^5.0.0",
     "extend-shallow": "^2.0.1",
-    "strip-attributes": "^0.1.0",
-    "unescape": "^0.2.0",
-    "void-elements": "^2.0.1"
+    "is-self-closing": "^1.0.0",
+    "snapdragon-node": "^1.0.1",
+    "snapdragon-util": "^1.0.2"
   },
   "devDependencies": {
     "gulp-format-md": "^0.1.11",
-    "mocha": "^3.2.0"
+    "mocha": "^3.2.0",
+    "snapdragon": "^0.9.0"
   },
   "keywords": [
     "cheerio",
@@ -38,7 +38,6 @@
     "snapdragon"
   ],
   "verb": {
-    "toc": false,
     "layout": "default",
     "tasks": [
       "readme"
@@ -48,9 +47,13 @@
     ],
     "related": {
       "list": [
-        "snapdragon",
         "cheerio",
-        "sledgehammer"
+        "sledgehammer",
+        "snapdragon",
+        "snapdragon-capture",
+        "snapdragon-node",
+        "snapdragon-util",
+        "snapdragon-capture-set"
       ]
     },
     "reflinks": [
