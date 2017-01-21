@@ -1,7 +1,7 @@
 {
   "name": "snapdragon-cheerio",
   "description": "Snapdragon plugin for converting a cheerio AST to a snapdragon AST.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "homepage": "https://github.com/jonschlinkert/snapdragon-cheerio",
   "author": "Jon Schlinkert (https://github.com/jonschlinkert)",
   "repository": "jonschlinkert/snapdragon-cheerio",
