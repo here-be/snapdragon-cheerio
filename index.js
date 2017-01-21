@@ -1,11 +1,10 @@
 'use strict';
 
-var voidElements = require('void-elements');
-var detectIndent = require('detect-indent');
-var stripAttr = require('strip-attributes');
-var define = require('define-property');
+var isSelfClosing = require('is-self-closing');
 var extend = require('extend-shallow');
-var unescape = require('unescape');
+var define = require('define-property');
+var util = require('snapdragon-util');
+var Node = require('snapdragon-node');
 
 /**
  * Parse the given `str` and return an AST.
@@ -24,15 +23,13 @@ var unescape = require('unescape');
 module.exports = function(options) {
   return function(snapdragon) {
     snapdragon.define('parse', function(str, options) {
-      var opts = extend({}, this.options, options);
-      return convert(str, opts);
+      return parse(str, extend({}, this.options, options));
     });
   };
 };
 
-function convert(str, options) {
+function parse(str, options) {
   var opts = extend({normalizeWhitespace: false}, options);
-  var cheerio = opts.cheerio || require('cheerio');
   var $;
 
   if (typeof str === 'function' && str._root) {
@@ -40,14 +37,12 @@ function convert(str, options) {
   } else if (typeof str !== 'string') {
     throw new TypeError('expected a string');
   } else {
+    var cheerio = opts.cheerio || require('cheerio');
     $ = cheerio.load(str, opts);
   }
 
   if (typeof opts.omitEmpty === 'string' || Array.isArray(opts.omitEmpty)) {
-    $(stringify(opts.omitEmpty)).each(function(i, node) {
-      var re = /^(?:t(?:[rhd]|able|body|foot)|code|pre|br|hr)$/;
-      if (re.test(node.name)) return;
-
+    $(util.stringify(opts.omitEmpty)).each(function(i, node) {
       var text = $(node).text();
       if (!text.trim()) {
         $(node).remove();
@@ -55,149 +50,80 @@ function convert(str, options) {
     });
   }
 
-  // `.stripTags` will be deprecated
-  var omit = opts.stripTags || opts.omit;
-  if (omit) {
-    $(stringify(omit)).remove();
+  if (opts.omit) {
+    $(util.stringify(opts.omit)).remove();
   }
 
+  // get the nodes to use for the snapdragon AST
   var nodes = $._root.children;
+
+  // if `options.pick` is used, we essentially
+  // convert the AST into a token stream, since pick does't
+  // infer or guarantee any kind of tree-relationship
   if (opts.pick) {
     var arr = [];
-    $(stringify(opts.pick)).each(function(i, ele) {
+    $(util.stringify(opts.pick)).each(function(i, ele) {
       arr.push(ele);
     });
-
-    if (arr.length) {
-      nodes = arr;
-    }
+    nodes = arr;
   }
 
-  var ast = { type: 'string', nodes: nodes };
-  var bos = { type: 'bos', val: ''};
-  var eos = { type: 'eos', val: ''};
+  var ast = new Node({ type: 'string', nodes: nodes });
+  var bos = new Node({ type: 'bos', val: ''});
+  var eos = new Node({ type: 'eos', val: ''});
 
   define(bos, 'parent', ast);
   define(eos, 'parent', ast);
-
   nodes.unshift(bos);
   nodes.push(eos);
-  var prev = ast;
+
   var tokens = [];
 
-  visit(ast, function(node, i) {
+  // visit over AST, calling "mapVisit" on each "node.nodes" along the way
+  util.visit(ast, {recurse: true}, function(node, i) {
+    // pre-process node, before "normalize" is called
     if (typeof opts.preprocess === 'function') {
-      node = opts.preprocess(node, prev, $, ast, opts) || node;
+      node = opts.preprocess($, node, ast, opts) || node;
     }
 
-    if (node.type === 'tag') {
-      if (node.name === 'title') {
-        node.val = node.data = $(node).text().trim();
-      }
+    node = normalize(node);
 
-      if (node.name === 'code') {
-        node.html = unescape($(node).html());
-      }
-
-      if ((node.name === 'table' || node.name === 'dl')) {
-        node.html = stripAttr($.html(node));
-        var indent = detectIndent(node.html).indent;
-        var last = node.html.split('\n').pop();
-        if (last.slice(0, indent.length) === indent) {
-          node.html = node.html.replace(new RegExp('^' + indent, 'gm'), '');
-        }
-      }
-
-      if (node.name === 'li') {
-        $('p', node).each(function(i, ele) {
-          var str = $(this).html().trim();
-          if (i > 0) str = ' ' + str;
-          var span = $('<span></span>').html(str);
-          $(this).replaceWith(span);
-        });
-      }
-
-      if ((node.name === 'ul' || node.name === 'ol' || node.name === 'li')) {
-        node.text = $(node).text();
-        if (!node.text.trim()) {
-          toNoop(node, true);
-        }
-      }
-
-      if (node.name === 'pre') {
-        node.outer = stripAttr($.html(node));
-        var html = $(node).html();
-
-        if (html) {
-          var code = $('code', node) || {};
-          var codeInner = opts.literalPre === true
-            ? code.html && code.html()
-            : code.text && code.text();
-
-          var text = codeInner || $(node).text();
-
-          node.gfm = true;
-          node.text = '\n' + text.trim() + '\n';
-          node.html = '\n' + (code ? text : html).trim() + '\n';
-          node.attr = (code.attr && code.attr());
-        } else {
-          var tok = { type: 'text', val: html };
-          node.nodes = [tok];
-          define(tok, 'parent', node);
-          wrapNodes(node);
-        }
-      } else if (node.name === 'code') {
-        node.html = $(node).html();
-        node.text = $(node).text();
-      }
+    // post-process node, after "normalize" is called
+    if (typeof opts.postprocess === 'function') {
+      node = opts.postprocess(node, ast, opts) || node;
     }
 
+    // add the index of the token ("node.index" is used for the
+    // position of the node in relationship to its siblings)
+    define(node, 'i', tokens.length);
     tokens.push(node);
-    prev = node;
     return node;
   });
 
-  visit(ast, function(node, i) {
-    if (opts.literalPre && node.type === 'pre') return node;
+  // add non-enumerable tokens array to AST
+  define(ast, 'tokens', tokens);
 
-    node = normalize(node, prev);
-    if (/:/.test(node.type)) {
-      node.name = node.type;
-      node.type = 'custom';
-    }
-
-    if (node.type === 'link' && node.attribs && node.attribs.rel === 'canonical') {
-      ast.canonical = node.attribs.href;
-    }
-
-    prev = node;
-    return node;
-  });
-
-  visit(ast, function(node) {
-    promoteTypes(node, ['span']);
-    return node;
-  });
-
-  if (typeof opts.process === 'function') {
-    prev = ast;
-    visit(ast, function(node, i) {
-      opts.process(node, prev, $, ast);
-      prev = node;
-      return node;
-    });
-  }
-
+  // add a non-enumerable reference to cheerio to the AST
+  define($, '$', ast);
   return ast;
 }
 
-function normalize(node, prev, options) {
+/**
+ * Normalize `node` to be a node that is more idiomatic to snapdragon.
+ * We lose some of the cheerio methods, but we also gain snapdragon
+ * features.
+ *
+ * @param {Object} `node`
+ * @return {Object}
+ */
+
+function normalize(node) {
   if (node.type === 'directive') {
     node.name = node.name.replace(/^!/, '');
     node.type = 'tag';
   }
 
-  // make properties non-enumerable
+  // make some properties non-enumerable
   define(node, 'children', node.children);
   define(node, 'data', node.data);
 
@@ -205,148 +131,38 @@ function normalize(node, prev, options) {
   renameProperty(node, 'children', 'nodes');
   renameProperty(node, 'data', 'val');
 
-  // make cyclically redundant properties non-enumerable
-  define(node, 'parent', node.parent);
+  // make cyclical references non-enumerable
   define(node, 'root', node.root);
-  define(node, 'prev', node.prev);
-  define(node, 'next', node.next);
 
   if (node.type === 'tag') {
     node.type = node.name;
     delete node.name;
-    wrapNodes(node);
+
+    if (!isSelfClosing(node.type)) {
+      util.wrapNodes(node);
+    }
   }
 
+  if (!node.isNode) {
+    node = new Node(node);
+    // make cyclical references non-enumerable
+    define(node, 'parent', node.parent);
+    define(node, 'firstChild', node.firstChild);
+    define(node, 'lastChild', node.lastChild);
+    define(node, 'nodeType', node.nodeType);
+  }
   return node;
 }
 
 function renameProperty(node, key, prop) {
-  if (typeof node[key] !== 'undefined' && !node[prop]) {
+  if (typeof node[key] !== 'undefined' && !node.hasOwnProperty(prop)) {
     node[prop] = node[key];
+    define(node, key, node[key]);
   }
-}
-
-function hasType(node, type) {
-  if (!node.nodes) return;
-  for (var i = 0; i < node.nodes.length; i++) {
-    if (node.nodes[i].type === type) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isSelfClosing(node) {
-  return voidElements.hasOwnProperty(node.type);
 }
 
 /**
- * Visit `node` with the given `fn`
+ * Expose `.parse` method, so it can be used a non-plugin
  */
 
-function wrapNodes(node) {
-  if (!node.nodes || isSelfClosing(node)) return;
-  var open = { type: node.type + '.open', val: ''};
-  var close = { type: node.type + '.close', val: ''};
-
-  define(open, 'parent', node);
-  define(open, 'next', node.nodes[0]);
-  define(open, 'prev', null);
-
-  define(close, 'parent', node);
-  define(close, 'next', null);
-  define(close, 'prev', node.nodes[node.nodes.length - 1]);
-
-  node.nodes.unshift(open);
-  node.nodes.push(close);
-}
-
-/**
- * Visit `node` with the given `fn`
- */
-
-function visit(node, fn, idx) {
-  node = fn(node, idx);
-  var nodes = node.nodes || node.children;
-  if (nodes) {
-    mapVisit(node, nodes, fn);
-  }
-  return node;
-}
-
-/**
- * Map visit over array of `nodes`.
- */
-
-function mapVisit(node, nodes, fn) {
-  if (Array.isArray(nodes)) {
-    for (var i = 0; i < nodes.length; i++) {
-      define(nodes[i], 'parent', node);
-      nodes[i] = visit(nodes[i], fn, i) || nodes[i];
-    }
-  }
-  return nodes;
-}
-
-function promoteTypes(node, types) {
-  for (var i = 0; i < types.length; i++) {
-    promoteNodes(node, types[i]);
-  }
-}
-
-function promoteNodes(node, type) {
-  if (node.type === type) {
-    promote(node.parent, type);
-  }
-  while (hasType(node, type)) {
-    promote(node, type);
-  }
-}
-
-function promote(node, type) {
-  if (!node.nodes) return;
-  for (var i = 0; i < node.nodes.length; i++) {
-
-    var tok = node.nodes[i];
-    if (!tok) continue;
-    var nodes = [];
-
-    if (tok.type === type) {
-      for (var j = 0; j < tok.nodes.length; j++) {
-        var child = tok.nodes[j];
-        if (/\.(open|close)/.test(child.type)) continue;
-        if (child.attribs && !node.attribs) {
-          node.attribs = child.attribs;
-        }
-        define(child, 'parent', node);
-        nodes.push(child);
-      }
-      node.nodes.splice(i, 1, ...nodes);
-    }
-  }
-}
-
-function arrayify(val) {
-  return val ? (Array.isArray(val) ? val : [val]) : [];
-}
-
-function stringify(val) {
-  return arrayify(val).join(',');
-}
-
-function toNoop(node, nodes) {
-  if (nodes) {
-    node.nodes = [];
-  } else {
-    delete node.nodes;
-  }
-
-  node.type = 'text';
-  node.val = '';
-}
-
-/**
- * Expose `.convert` method, so it can be used a non-plugin
- */
-
-module.exports.convert = convert;
+module.exports.parse = parse;

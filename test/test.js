@@ -3,15 +3,16 @@
 require('mocha');
 var util = require('util');
 var assert = require('assert');
-var cheerio = require('..');
+var parser = require('..');
 
 describe('snapdragon-cheerio', function() {
   it('should export a function', function() {
-    assert.equal(typeof cheerio, 'function');
+    assert.equal(typeof parser, 'function');
   });
 
   it('should parse HTML and return a snapdragon AST', function() {
-    assert.deepEqual(cheerio('<p>Foo</p>'), {
+    var ast = parser.parse('<p>Foo</p>');
+    assert.deepEqual(ast, {
       type: 'string',
       nodes: [
         {type: 'bos', val: ''},
@@ -28,7 +29,7 @@ describe('snapdragon-cheerio', function() {
 
   it('should throw an error when invalid args are passed', function(cb) {
     try {
-      cheerio();
+      parser.parse();
       cb(new Error('expected an error'));
     } catch (err) {
       assert(err);
