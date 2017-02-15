@@ -139,7 +139,7 @@ function normalize(node) {
     delete node.name;
 
     if (!isSelfClosing(node.type)) {
-      util.wrapNodes(node);
+      util.wrapNodes(node, Node);
     }
   }
 

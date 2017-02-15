@@ -14,7 +14,7 @@
   ],
   "main": "index.js",
   "engines": {
-    "node": ">=0.10.0"
+    "node": ">=4"
   },
   "scripts": {
     "test": "mocha"
@@ -24,22 +24,23 @@
     "define-property": "^0.2.5",
     "extend-shallow": "^2.0.1",
     "is-self-closing": "^1.0.0",
-    "snapdragon-node": "^1.0.3",
-    "snapdragon-util": "^1.0.3"
+    "snapdragon-node": "^1.0.6",
+    "snapdragon-util": "^2.0.0"
   },
   "devDependencies": {
+    "breakdance": "^0.1.7",
     "gulp-format-md": "^0.1.11",
     "mocha": "^3.2.0",
-    "snapdragon": "^0.9.1"
+    "snapdragon": "^0.10.1"
   },
   "keywords": [
-    "html",
     "ast",
-    "nodes",
     "cheerio",
     "compile",
     "compiler",
     "convert",
+    "html",
+    "nodes",
     "parse",
     "parser",
     "render",
